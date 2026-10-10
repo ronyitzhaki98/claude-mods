@@ -41,8 +41,33 @@ async function gh(io: Io, root: string, args: string[]): Promise<{ ok: boolean; 
 
 /** `owner/name` of the repo's GitHub remote, or null when it has none (or gh is missing). */
 export async function githubRepo(io: Io, root: string): Promise<string | null> {
+  return (await githubSource(io, root)).repo
+}
+
+/**
+ * The repo's GitHub source: `owner/name`, or null with no GitHub remote. When the
+ * repo does have a GitHub remote but gh cannot read it (not installed, not signed
+ * in), `error` says why, so the drawer shows it instead of silently showing no maps.
+ */
+export async function githubSource(io: Io, root: string): Promise<{ repo: string | null; error?: string }> {
   const r = await gh(io, root, ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'])
-  return r.ok && r.out.trim() ? r.out.trim() : null
+  if (r.ok && r.out.trim()) return { repo: r.out.trim() }
+  let remotes = ''
+  try {
+    const g = await io.run(['git', 'remote', '-v'], root)
+    remotes = g.exitCode === 0 ? g.stdout : ''
+  } catch {
+    // No git: not a GitHub repo as far as the drawer can tell.
+  }
+  if (!/github\.com[:/]/i.test(remotes)) return { repo: null }
+  const why = (r.err || r.out).trim()
+  if (/ENOENT|not found|not recognized|cannot find|no such file/i.test(why)) {
+    return { repo: null, error: 'GitHub: the gh CLI is not installed. Install it and sign in (gh auth login) to load maps from issues.' }
+  }
+  if (/auth login|not logged in|authenticat|GH_TOKEN/i.test(why)) {
+    return { repo: null, error: 'GitHub: gh is not signed in. Run gh auth login, then press Refresh.' }
+  }
+  return { repo: null, error: `GitHub: ${why.split('\n')[0] || 'gh could not read this repo'}` }
 }
 
 /** Without native links: `- [ ] #12` task-list children on the map, `Blocked by: #3` lines on the child. */

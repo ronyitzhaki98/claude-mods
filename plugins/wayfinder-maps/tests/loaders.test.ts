@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { githubIssueBody, githubRepo, loadGithubMaps } from '../hooks/github'
+import { githubIssueBody, githubRepo, githubSource, loadGithubMaps } from '../hooks/github'
 import { loadMarkdownMaps } from '../hooks/markdown'
 import { fakeGh, fakeIo } from './fixtures'
 
@@ -45,6 +45,35 @@ describe('GitHub', () => {
   test('finds the repo, or none without a remote', async () => {
     expect(await githubRepo(fakeIo(fakeGh), 'R')).toBe('o/r')
     expect(await githubRepo(fakeIo(), 'R')).toBeNull()
+    expect(await githubSource(fakeIo(), 'R')).toEqual({ repo: null })
+  })
+
+  test('says why a GitHub repo shows no maps when gh cannot read it', async () => {
+    const remote = 'origin\thttps://github.com/o/r.git (fetch)\n'
+    const withGh = (ghAnswer: () => Promise<{ exitCode: number; stdout: string; stderr: string }>) =>
+      fakeIo(async argv => (argv[0] === 'git' ? { exitCode: 0, stdout: remote, stderr: '' } : ghAnswer()))
+
+    const signedOut = await githubSource(
+      withGh(async () => ({ exitCode: 4, stdout: '', stderr: 'To get started with GitHub CLI, please run:  gh auth login' })),
+      'R',
+    )
+    expect(signedOut.repo).toBeNull()
+    expect(signedOut.error).toContain('gh auth login')
+
+    const missing = await githubSource(
+      withGh(async () => {
+        throw new Error('spawn gh ENOENT')
+      }),
+      'R',
+    )
+    expect(missing.error).toContain('not installed')
+
+    const notGithub = fakeIo(async argv =>
+      argv[0] === 'git'
+        ? { exitCode: 0, stdout: 'origin\thttps://gitlab.com/o/r.git (fetch)\n', stderr: '' }
+        : { exitCode: 1, stdout: '', stderr: 'none of the git remotes point to a known GitHub host' },
+    )
+    expect(await githubSource(notGithub, 'R')).toEqual({ repo: null })
   })
 
   test('reads maps, sub-issues, labels, assignees and native blocking', async () => {

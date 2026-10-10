@@ -4,7 +4,7 @@ import type { EngineInterface, Register } from 'claude-code'
 import type { WfCopied, WfData, WfDetail, WfFilter, WfLayout, WfMap, WfTicket, WfView } from '../types'
 import type { CardProps } from './card'
 import { ClickGate } from './clicks'
-import { githubIssueBody, githubRepo, loadGithubMaps } from './github'
+import { githubIssueBody, githubSource, loadGithubMaps } from './github'
 import { STATUS_STYLE, cardLayout, cardRows, dependents, layers, treeRows } from './graph'
 import { appChat, clipboardArgv, pasteKeys, terminalChat } from './launch'
 import type { Launch, Platform } from './launch'
@@ -146,14 +146,15 @@ async function refresh($: EngineInterface, github: boolean, isQuiet: boolean) {
     })
     if (github || lastGithubAt === 0) {
       lastGithubAt = await $.clock.now()
-      const repo = await githubRepo(io, root)
-      if (repo) {
+      const source = await githubSource(io, root)
+      if (source.repo) {
+        const repo = source.repo
         const r = await loadGithubMaps(io, root, repo).catch(error => ({ maps: [] as WfMap[], error: String(error) }))
         githubMaps = r.maps
         githubError = r.error
       } else {
         githubMaps = []
-        githubError = undefined
+        githubError = source.error
       }
     }
     if (githubError) errors.push(githubError)
